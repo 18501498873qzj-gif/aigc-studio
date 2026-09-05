@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: aigc-studio
+    runtime: node
+    plan: free
+    buildCommand: echo "no build needed"
+    startCommand: npm start
+    envVars:
+      - key: ARK_API_KEY
+        sync: false
+      - key: NODE_VERSION
+        value: "22"

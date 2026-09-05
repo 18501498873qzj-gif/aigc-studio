@@ -1,0 +1,13 @@
+{
+  "name": "aigc-studio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AIGC 生图工作台：静态托管 + 火山方舟生图代理",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
