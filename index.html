@@ -463,6 +463,26 @@
     font-size: 12px; font-family: inherit; -webkit-appearance: none; appearance: none; text-align: center;
   }
   .gm-row select option { background: #0a0620; color: #fff; }
+  /* 自定义下拉：替代原生 select 弹出列表（原生列表无法做圆角） */
+  .dd { position: relative; flex: 1; min-width: 0; }
+  .dd-btn {
+    width: 100%; height: 40px; border-radius: 10px; padding: 0 8px; cursor: pointer; outline: none;
+    background: rgba(3,0,20,0.55); border: 1px solid var(--border); color: var(--text);
+    font-size: 12px; font-family: inherit; display: flex; align-items: center; justify-content: center; gap: 6px;
+    transition: border-color 0.15s;
+  }
+  .dd-btn .chev { color: rgba(255,255,255,0.5); font-size: 10px; transition: transform 0.15s; }
+  .dd.open .dd-btn { border-color: rgba(46,167,255,0.65); }
+  .dd.open .dd-btn .chev { transform: rotate(180deg); }
+  .dd-list {
+    position: absolute; bottom: calc(100% + 6px); left: 0; right: 0; z-index: 30; display: none;
+    background: #0d0926; border: 1px solid var(--border); border-radius: 12px; padding: 6px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.55); max-height: 280px; overflow-y: auto;
+  }
+  .dd.open .dd-list { display: block; }
+  .dd-item { padding: 9px 10px; border-radius: 8px; font-size: 12px; color: var(--text); cursor: pointer; text-align: center; transition: background 0.12s; }
+  .dd-item:hover { background: rgba(46,167,255,0.14); }
+  .dd-item.on { color: var(--accent); background: rgba(46,167,255,0.1); }
   .gm-send {
     width: 44px; height: 40px; flex-shrink: 0; border: none; border-radius: 50%; cursor: pointer;
     background: linear-gradient(90deg, #2ea7ff, #9381ff); color: #fff;
@@ -537,6 +557,10 @@
               <button class="chip active" data-value="4:3" data-page-node-id="WXMj2iAY8Yf8IqH42S7yxU">4:3</button>
               <button class="chip" data-value="3:4" data-page-node-id="e7HLBncZgk1NCLb0scfH54">3:4</button>
               <button class="chip" data-value="16:9" data-page-node-id="IBRs2Cc2eGFjSPzHITCOGO">16:9</button>
+              <button class="chip" data-value="9:16">9:16</button>
+              <button class="chip" data-value="3:2">3:2</button>
+              <button class="chip" data-value="2:3">2:3</button>
+              <button class="chip" data-value="21:9">21:9</button>
             </div>
           </div>
         </div>
@@ -622,6 +646,10 @@
           <option value="4:3">4:3</option>
           <option value="3:4">3:4</option>
           <option value="16:9">16:9</option>
+          <option value="9:16">9:16</option>
+          <option value="3:2">3:2</option>
+          <option value="2:3">2:3</option>
+          <option value="21:9">21:9</option>
         </select>
         <select id="gmRes">
           <option value="2K" selected>2K</option>
@@ -869,6 +897,50 @@
   const genModal = $('genModal'), gmRefs = $('gmRefs'), gmFile = $('gmFile');
   const gmPrompt = $('gmPrompt'), gmAtMenu = $('gmAtMenu');
   const gmModel = $('gmModel'), gmRatio = $('gmRatio'), gmRes = $('gmRes'), gmSend = $('gmSend');
+
+  // 自定义下拉初始化：保留隐藏的原生 select 作为状态存储，渲染圆角列表 UI
+  function initDropdown(sel) {
+    const dd = document.createElement('div');
+    dd.className = 'dd';
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.className = 'dd-btn';
+    const label = document.createElement('span');
+    const chev = document.createElement('span');
+    chev.className = 'chev'; chev.textContent = '▾';
+    btn.append(label, chev);
+    const list = document.createElement('div');
+    list.className = 'dd-list';
+    const sync = () => {
+      label.textContent = sel.selectedOptions[0] ? sel.selectedOptions[0].textContent : sel.value;
+      list.querySelectorAll('.dd-item').forEach((it) => it.classList.toggle('on', it.dataset.value === sel.value));
+    };
+    [...sel.options].forEach((opt) => {
+      const item = document.createElement('div');
+      item.className = 'dd-item';
+      item.textContent = opt.textContent;
+      item.dataset.value = opt.value;
+      item.addEventListener('click', () => {
+        sel.value = opt.value;
+        sel.dispatchEvent(new Event('change'));
+        sync();
+        dd.classList.remove('open');
+      });
+      list.appendChild(item);
+    });
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.querySelectorAll('.dd.open').forEach((d) => { if (d !== dd) d.classList.remove('open'); });
+      dd.classList.toggle('open');
+    });
+    dd.append(btn, list);
+    sel.style.display = 'none';
+    sel.after(dd);
+    sync();
+  }
+  ['gmModel', 'gmRatio', 'gmRes'].forEach((id) => initDropdown($(id)));
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.dd')) document.querySelectorAll('.dd.open').forEach((d) => d.classList.remove('open'));
+  });
 
   // 视图切换
   $('tabStudio').addEventListener('click', () => switchView(false));
