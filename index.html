@@ -255,7 +255,7 @@
   .n-link {
     position: absolute; top: 50%; width: 12px; height: 12px; border-radius: 50%; z-index: 2;
     margin-top: -6px; background: var(--accent); border: 2px solid #ffffff; display: block;
-    cursor: crosshair; box-shadow: 0 0 8px rgba(46,167,255,0.65); opacity: 0.55;
+    cursor: crosshair; box-shadow: 0 0 8px rgba(46,167,255,0.65); opacity: 0.85;
     transition: opacity 0.15s;
   }
   .node:hover .n-link, .node.selected .n-link { opacity: 1; }
@@ -270,7 +270,7 @@
     background: rgba(10,6,32,0.85);
   }
   /* 生成节点的连接点：常显 + 呼吸发光，无需悬停 */
-  .node.n-load .n-link { display: block; animation: nlinkPulse 1.5s ease-in-out infinite; }
+  .node.n-load .n-link { display: block; opacity: 1; width: 15px; height: 15px; margin-top: -7.5px; animation: nlinkPulse 1.5s ease-in-out infinite; }
   @keyframes nlinkPulse {
     0%, 100% { box-shadow: 0 0 6px rgba(46,167,255,0.5); }
     50% { box-shadow: 0 0 16px rgba(46,167,255,1); }
@@ -1143,26 +1143,21 @@
   const edges = []; // {a, b, hit, line}
   function nodeH(n) { return n.el ? n.el.offsetHeight : 180; }
   function nodeCenter(n) { return { x: n.x + n.w / 2, y: n.y + nodeH(n) / 2 }; }
-  // 连线端点落在节点边框上（中心连线与边框的交点）
-  function anchorPoint(n, ox, oy) {
-    const c = nodeCenter(n);
-    const dx = ox - c.x, dy = oy - c.y;
-    const hw = n.w / 2, hh = nodeH(n) / 2;
-    const sx = dx === 0 ? Infinity : hw / Math.abs(dx);
-    const sy = dy === 0 ? Infinity : hh / Math.abs(dy);
-    const s = Math.min(sx, sy);
-    return { x: c.x + dx * s, y: c.y + dy * s };
-  }
-  // tapnow 风格平滑曲线：水平走向的三次贝塞尔
-  function curveD(p1, p2) {
-    const dx = Math.max(Math.abs(p2.x - p1.x) * 0.5, 40);
+  // tapnow 风格平滑曲线：水平走向的三次贝塞尔；sameSide 时两个端口在同侧，呈 C 形包覆
+  function curveD(p1, p2, sameSide) {
+    const dx = Math.max(Math.abs(p2.x - p1.x) * 0.5, 50);
+    if (sameSide) return `M ${p1.x} ${p1.y} C ${p1.x + dx} ${p1.y}, ${p2.x + dx} ${p2.y}, ${p2.x} ${p2.y}`;
     const s = p2.x >= p1.x ? 1 : -1;
     return `M ${p1.x} ${p1.y} C ${p1.x + dx * s} ${p1.y}, ${p2.x - dx * s} ${p2.y}, ${p2.x} ${p2.y}`;
   }
+  // 连线统一从节点左右两侧端口（与蓝点一致）出入，不再从上下中间穿出
   function drawEdge(ed) {
     const ca = nodeCenter(ed.a), cb = nodeCenter(ed.b);
-    const p1 = anchorPoint(ed.a, cb.x, cb.y), p2 = anchorPoint(ed.b, ca.x, ca.y);
-    const d = curveD(p1, p2);
+    const vertical = Math.abs(cb.x - ca.x) < (ed.a.w + ed.b.w) / 2 * 0.6; // 近似上下排列
+    const d1 = vertical ? 1 : (cb.x >= ca.x ? 1 : -1);
+    const p1 = { x: ca.x + d1 * (ed.a.w / 2), y: ca.y };
+    const p2 = { x: cb.x + (vertical ? d1 : -d1) * (ed.b.w / 2), y: cb.y };
+    const d = curveD(p1, p2, vertical);
     ed.hit.setAttribute('d', d); ed.line.setAttribute('d', d);
   }
   function updateEdges() { edges.forEach(drawEdge); }
@@ -1196,19 +1191,14 @@
       hh: phEl.offsetHeight / 2,
     };
   }
-  function rectAnchor(cx, cy, hw, hh, ox, oy) {
-    const dx = ox - cx, dy = oy - cy;
-    const sx = dx === 0 ? Infinity : hw / Math.abs(dx);
-    const sy = dy === 0 ? Infinity : hh / Math.abs(dy);
-    const s = Math.min(sx, sy);
-    return { x: cx + dx * s, y: cy + dy * s };
-  }
   function drawPhEdge(pe) {
     const g = phGeom(pe.phEl);
     const c1 = nodeCenter(pe.from);
-    const p1 = anchorPoint(pe.from, g.cx, g.cy);
-    const p2 = rectAnchor(g.cx, g.cy, g.hw, g.hh, c1.x, c1.y);
-    const d = curveD(p1, p2);
+    const vertical = Math.abs(g.cx - c1.x) < (pe.from.w / 2 + g.hw) * 0.6; // 近似上下排列
+    const d1 = vertical ? 1 : (g.cx >= c1.x ? 1 : -1);
+    const p1 = { x: c1.x + d1 * (pe.from.w / 2), y: c1.y };
+    const p2 = { x: g.cx + (vertical ? d1 : -d1) * g.hw, y: g.cy };
+    const d = curveD(p1, p2, vertical);
     pe.hit.setAttribute('d', d); pe.line.setAttribute('d', d);
   }
   function removePhEdge(pe) {
@@ -1362,16 +1352,10 @@
     const nr = lk.node.el.getBoundingClientRect();
     const mr = gmBox.getBoundingClientRect();
     const cx = nr.left + nr.width / 2, cy = nr.top + nr.height / 2;
-    const px = Math.max(mr.left, Math.min(cx, mr.right)); // 弹窗矩形上离节点最近的点
-    const py = Math.max(mr.top, Math.min(cy, mr.bottom));
-    const hw = nr.width / 2 + 5, hh = nr.height / 2 + 5;
-    let sxp = cx, syp = cy;
-    const adx = mr.left + mr.width / 2 - cx, ady = mr.top + mr.height / 2 - cy; // 朝弹窗中心的方向
-    if (adx || ady) {
-      const t = 1 / Math.max(Math.abs(adx) / hw, Math.abs(ady) / hh);
-      sxp = cx + adx * t; syp = cy + ady * t; // 从节点边框出发，不压在图片上
-    }
-    lk.line.setAttribute('d', curveD({ x: sxp, y: syp }, { x: px, y: py }));
+    const d1 = (mr.left + mr.width / 2) >= cx ? 1 : -1; // 从朝向弹窗的一侧端口出线
+    const p1 = { x: cx + d1 * (nr.width / 2 + 5), y: cy };
+    const p2 = { x: d1 === 1 ? mr.left : mr.right, y: Math.max(mr.top + 24, Math.min(cy, mr.bottom - 24)) };
+    lk.line.setAttribute('d', curveD(p1, p2));
   }
   function gmModalLinksTick() {
     if (!genModal.classList.contains('open') || gmModalLinks.length === 0) { gmLinkTickOn = false; return; }
