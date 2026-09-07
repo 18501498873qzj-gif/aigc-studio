@@ -418,6 +418,13 @@
     box-shadow: 0 0 0 2px rgba(46,167,255,0.55), 0 0 30px rgba(46,167,255,0.35), 0 24px 80px rgba(0,0,0,0.55);
   }
   .gen-modal.gm-link-target .gm-sec-title { color: var(--accent); }
+  /* 弹窗固定连入端口：所有参考图连线都插到这个点上 */
+  .gm-port {
+    position: fixed; width: 18px; height: 18px; border-radius: 50%; z-index: 7; pointer-events: none;
+    background: var(--accent); border: 2.5px solid #ffffff;
+    box-shadow: 0 0 12px rgba(46,167,255,0.9); transition: transform 0.15s, background 0.15s;
+  }
+  .gm-port.hot { transform: scale(1.4); background: #ffffff; }
   .gm-head { display: flex; justify-content: space-between; align-items: center; cursor: move; user-select: none; -webkit-user-select: none; }
   .gm-title { font-size: 15px; font-weight: 600; }
   .gm-close {
@@ -594,7 +601,7 @@
     <div class="gen-modal">
       <div class="gm-head"><span class="gm-title">图片生成</span><button class="gm-close" id="gmClose" title="关闭">✕</button></div>
       <div>
-        <div class="gm-sec-title">参考图（可选 · 从画布节点拖线到弹窗即可连入 · 提示词中 @ 引用）</div>
+        <div class="gm-sec-title">参考图（可选 · 从画布节点拖线到弹窗左侧圆点即可连入 · 提示词中 @ 引用）</div>
         <div class="gm-refs" id="gmRefs"></div>
         <input type="file" id="gmFile" accept="image/png,image/jpeg,image/webp" multiple hidden />
       </div>
@@ -1307,6 +1314,7 @@
 
   function openGenModal() {
     genModal.classList.add('open');
+    if (!gmLinkTickOn) { gmLinkTickOn = true; requestAnimationFrame(gmModalLinksTick); } // 弹窗连入端口常显
     // 连线即参考：自动带入画布上连线/标记的图片节点
     const existing = new Set(gmRefImages);
     let added = 0;
@@ -1322,6 +1330,7 @@
   function closeGenModal() {
     genModal.classList.remove('open'); hideGmAtMenu();
     gmModalLinksClear(); // 关弹窗拆掉所有到弹窗的连线
+    gmPortHide(); // 连入端口同步消失
     gmDx = 0; gmDy = 0; gmBox.style.transform = ''; // 复位拖动位置
   }
   // 弹窗连线的持久显示：节点 → 弹窗的常驻白线（端点插在弹窗边缘，实时跟随）
@@ -1354,11 +1363,29 @@
     const cx = nr.left + nr.width / 2, cy = nr.top + nr.height / 2;
     const d1 = (mr.left + mr.width / 2) >= cx ? 1 : -1; // 从朝向弹窗的一侧端口出线
     const p1 = { x: cx + d1 * (nr.width / 2 + 5), y: cy };
-    const p2 = { x: d1 === 1 ? mr.left : mr.right, y: Math.max(mr.top + 24, Math.min(cy, mr.bottom - 24)) };
+    const p2 = gmPortPoint(mr); // 固定连入端口
     lk.line.setAttribute('d', curveD(p1, p2));
   }
+  // 弹窗固定连入端口（左边缘中点）：线的视觉锚点
+  let gmPortEl = null;
+  function gmPortPoint(mr) { return { x: mr.left + 2, y: mr.top + mr.height / 2 }; }
+  function gmPortDraw() {
+    const mr = gmBox.getBoundingClientRect();
+    if (!gmPortEl || !gmPortEl.isConnected) {
+      gmPortEl = document.createElement('div');
+      gmPortEl.className = 'gm-port';
+      gmPortEl.title = '参考图连入点：把画布节点的连线拖到这里';
+      document.body.appendChild(gmPortEl);
+    }
+    const p = gmPortPoint(mr);
+    gmPortEl.style.left = (p.x - 9) + 'px';
+    gmPortEl.style.top = (p.y - 9) + 'px';
+    gmPortEl.classList.toggle('hot', gmBox.classList.contains('gm-link-target'));
+  }
+  function gmPortHide() { if (gmPortEl) { gmPortEl.remove(); gmPortEl = null; } }
   function gmModalLinksTick() {
-    if (!genModal.classList.contains('open') || gmModalLinks.length === 0) { gmLinkTickOn = false; return; }
+    if (!genModal.classList.contains('open')) { gmLinkTickOn = false; gmPortHide(); return; }
+    gmPortDraw(); // 弹窗开着端口就常显（跟随弹窗拖动）
     gmModalLinks.slice().forEach(gmModalLinkDraw);
     requestAnimationFrame(gmModalLinksTick);
   }
