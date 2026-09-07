@@ -401,7 +401,7 @@
   .modal-backdrop {
     position: absolute; inset: 0; z-index: 5; display: none;
     align-items: center; justify-content: center;
-    background: rgba(3,0,20,0.55); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    background: rgba(3,0,20,0.18); /* 轻微压暗即可：画布节点与连线保持清晰，观感上和弹窗同层 */
     pointer-events: none;
   }
   .modal-backdrop.open { display: flex; }
@@ -1153,19 +1153,24 @@
     const s = Math.min(sx, sy);
     return { x: c.x + dx * s, y: c.y + dy * s };
   }
+  // tapnow 风格平滑曲线：水平走向的三次贝塞尔
+  function curveD(p1, p2) {
+    const dx = Math.max(Math.abs(p2.x - p1.x) * 0.5, 40);
+    const s = p2.x >= p1.x ? 1 : -1;
+    return `M ${p1.x} ${p1.y} C ${p1.x + dx * s} ${p1.y}, ${p2.x - dx * s} ${p2.y}, ${p2.x} ${p2.y}`;
+  }
   function drawEdge(ed) {
     const ca = nodeCenter(ed.a), cb = nodeCenter(ed.b);
     const p1 = anchorPoint(ed.a, cb.x, cb.y), p2 = anchorPoint(ed.b, ca.x, ca.y);
-    [['x1', p1.x], ['y1', p1.y], ['x2', p2.x], ['y2', p2.y]].forEach(([k, v]) => {
-      ed.hit.setAttribute(k, v); ed.line.setAttribute(k, v);
-    });
+    const d = curveD(p1, p2);
+    ed.hit.setAttribute('d', d); ed.line.setAttribute('d', d);
   }
   function updateEdges() { edges.forEach(drawEdge); }
   function addEdge(a, b) {
     if (a === b) return;
     if (edges.some((e) => (e.a === a && e.b === b) || (e.a === b && e.b === a))) return toast('这两个节点已连线');
-    const hit = document.createElementNS(svgNS, 'line'); hit.setAttribute('class', 'edge-hit');
-    const line = document.createElementNS(svgNS, 'line'); line.setAttribute('class', 'edge');
+    const hit = document.createElementNS(svgNS, 'path'); hit.setAttribute('class', 'edge-hit');
+    const line = document.createElementNS(svgNS, 'path'); line.setAttribute('class', 'edge');
     linkSvg.appendChild(hit); linkSvg.appendChild(line);
     const ed = { a, b, hit, line };
     edges.push(ed); drawEdge(ed);
@@ -1203,9 +1208,8 @@
     const c1 = nodeCenter(pe.from);
     const p1 = anchorPoint(pe.from, g.cx, g.cy);
     const p2 = rectAnchor(g.cx, g.cy, g.hw, g.hh, c1.x, c1.y);
-    [['x1', p1.x], ['y1', p1.y], ['x2', p2.x], ['y2', p2.y]].forEach(([k, v]) => {
-      pe.hit.setAttribute(k, v); pe.line.setAttribute(k, v);
-    });
+    const d = curveD(p1, p2);
+    pe.hit.setAttribute('d', d); pe.line.setAttribute('d', d);
   }
   function removePhEdge(pe) {
     pe.hit.remove(); pe.line.remove();
@@ -1213,8 +1217,8 @@
     if (i > -1) phEdges.splice(i, 1);
   }
   function addPhEdge(from, phEl) {
-    const hit = document.createElementNS(svgNS, 'line'); hit.setAttribute('class', 'edge-hit');
-    const line = document.createElementNS(svgNS, 'line'); line.setAttribute('class', 'edge');
+    const hit = document.createElementNS(svgNS, 'path'); hit.setAttribute('class', 'edge-hit');
+    const line = document.createElementNS(svgNS, 'path'); line.setAttribute('class', 'edge');
     linkSvg.appendChild(hit); linkSvg.appendChild(line);
     const pe = { from, phEl, hit, line };
     phEdges.push(pe); drawPhEdge(pe);
@@ -1230,9 +1234,9 @@
     // 拖线画在最顶层覆盖层（屏幕坐标）：弹窗打开时线也能画到弹窗上方
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;z-index:60;pointer-events:none;';
-    ov.innerHTML = '<svg width="100%" height="100%"><line x1="0" y1="0" x2="0" y2="0" style="stroke:rgba(255,255,255,0.95);stroke-width:2.5;stroke-dasharray:7 5;fill:none;filter:drop-shadow(0 0 4px rgba(255,255,255,0.5))"/></svg>';
+    ov.innerHTML = '<svg width="100%" height="100%"><path d="M 0 0 L 0 0" style="stroke:rgba(255,255,255,0.95);stroke-width:2.5;stroke-dasharray:7 5;fill:none;filter:drop-shadow(0 0 4px rgba(255,255,255,0.5))"/></svg>';
     document.body.appendChild(ov);
-    const tline = ov.querySelector('line');
+    const tline = ov.querySelector('path');
     const dr = dot.getBoundingClientRect();
     const sx = dr.left + dr.width / 2, sy = dr.top + dr.height / 2;
     const overModal = (x, y) => {
@@ -1240,8 +1244,7 @@
       return !!(el && el.closest && el.closest('.gen-modal') && genModal.classList.contains('open'));
     };
     const move = (ev) => {
-      tline.setAttribute('x1', sx); tline.setAttribute('y1', sy);
-      tline.setAttribute('x2', ev.clientX); tline.setAttribute('y2', ev.clientY);
+      tline.setAttribute('d', curveD({ x: sx, y: sy }, { x: ev.clientX, y: ev.clientY }));
       gmBox.classList.toggle('gm-link-target', overModal(ev.clientX, ev.clientY));
     };
     const up = (ev) => {
@@ -1368,8 +1371,7 @@
       const t = 1 / Math.max(Math.abs(adx) / hw, Math.abs(ady) / hh);
       sxp = cx + adx * t; syp = cy + ady * t; // 从节点边框出发，不压在图片上
     }
-    lk.line.setAttribute('x1', sxp); lk.line.setAttribute('y1', syp);
-    lk.line.setAttribute('x2', px); lk.line.setAttribute('y2', py);
+    lk.line.setAttribute('d', curveD({ x: sxp, y: syp }, { x: px, y: py }));
   }
   function gmModalLinksTick() {
     if (!genModal.classList.contains('open') || gmModalLinks.length === 0) { gmLinkTickOn = false; return; }
@@ -1378,7 +1380,7 @@
   }
   function addGmModalLink(node) {
     if (gmModalLinks.some((lk) => lk.src === node.src)) return;
-    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     line.setAttribute('style', 'stroke:rgba(255,255,255,0.95);stroke-width:2.5;fill:none;filter:drop-shadow(0 0 4px rgba(255,255,255,0.55));stroke-linecap:round;');
     gmLinkSvg().appendChild(line);
     const lk = { src: node.src, node, line };
