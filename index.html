@@ -425,6 +425,7 @@
     box-shadow: 0 0 12px rgba(46,167,255,0.9); transition: transform 0.15s, background 0.15s;
   }
   .gm-port.hot { transform: scale(1.4); background: #ffffff; }
+  .gm-port.out { pointer-events: auto; cursor: crosshair; }
   .gm-head { display: flex; justify-content: space-between; align-items: center; cursor: move; user-select: none; -webkit-user-select: none; }
   .gm-title { font-size: 15px; font-weight: 600; }
   .gm-close {
@@ -1330,6 +1331,7 @@
   function closeGenModal() {
     genModal.classList.remove('open'); hideGmAtMenu();
     gmModalLinksClear(); // 关弹窗拆掉所有到弹窗的连线
+    outWires.filter((w) => w.phEl === null).slice().forEach(removeOutWire); // 未提交的输出预连线一并取消
     gmPortHide(); // 连入端口同步消失
     gmDx = 0; gmDy = 0; gmBox.style.transform = ''; // 复位拖动位置
   }
@@ -1366,23 +1368,109 @@
     const p2 = gmPortPoint(mr); // 固定连入端口
     lk.line.setAttribute('d', curveD(p1, p2));
   }
-  // 弹窗固定连入端口（左边缘中点）：线的视觉锚点
-  let gmPortEl = null;
+  // 弹窗固定端口：左=参考图连入（输入），右=结果输出（生成后连给下一个节点）
+  let gmPortIn = null, gmPortOut = null;
   function gmPortPoint(mr) { return { x: mr.left + 2, y: mr.top + mr.height / 2 }; }
+  function gmPortOutPoint(mr) { return { x: mr.right - 2, y: mr.top + mr.height / 2 }; }
+  function mkPort(title, isOut) {
+    const el = document.createElement('div');
+    el.className = 'gm-port' + (isOut ? ' out' : '');
+    el.title = title;
+    document.body.appendChild(el);
+    if (isOut) el.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); startOutWire(e); });
+    return el;
+  }
   function gmPortDraw() {
     const mr = gmBox.getBoundingClientRect();
-    if (!gmPortEl || !gmPortEl.isConnected) {
-      gmPortEl = document.createElement('div');
-      gmPortEl.className = 'gm-port';
-      gmPortEl.title = '参考图连入点：把画布节点的连线拖到这里';
-      document.body.appendChild(gmPortEl);
+    if (!gmPortIn || !gmPortIn.isConnected) {
+      gmPortIn = mkPort('参考图连入点：把画布节点的连线拖到这里', false);
+      gmPortOut = mkPort('结果输出点：拖线到下一个节点，生成后结果会自动连给它作参考', true);
     }
-    const p = gmPortPoint(mr);
-    gmPortEl.style.left = (p.x - 9) + 'px';
-    gmPortEl.style.top = (p.y - 9) + 'px';
-    gmPortEl.classList.toggle('hot', gmBox.classList.contains('gm-link-target'));
+    const p = gmPortPoint(mr), q = gmPortOutPoint(mr);
+    gmPortIn.style.left = (p.x - 9) + 'px'; gmPortIn.style.top = (p.y - 9) + 'px';
+    gmPortOut.style.left = (q.x - 9) + 'px'; gmPortOut.style.top = (q.y - 9) + 'px';
+    const hot = gmBox.classList.contains('gm-link-target');
+    gmPortIn.classList.toggle('hot', hot);
+    gmPortOut.classList.toggle('hot', hot);
   }
-  function gmPortHide() { if (gmPortEl) { gmPortEl.remove(); gmPortEl = null; } }
+  function gmPortHide() {
+    if (gmPortIn) { gmPortIn.remove(); gmPortIn = null; }
+    if (gmPortOut) { gmPortOut.remove(); gmPortOut = null; }
+  }
+  // 输出预连线：从弹窗右端口拖到目标节点，生成完成后自动转为结果节点与目标节点的正式连线
+  const outWires = []; // { target, phEl, line, hit }
+  let outOv = null, outTickOn = false;
+  function outSvg() {
+    if (!outOv || !outOv.isConnected) {
+      outOv = document.createElement('div');
+      outOv.style.cssText = 'position:fixed;inset:0;z-index:6;pointer-events:none;';
+      outOv.innerHTML = '<svg width="100%" height="100%"></svg>';
+      document.body.appendChild(outOv);
+    }
+    return outOv.querySelector('svg');
+  }
+  function outAnchorA(w) {
+    if (genModal.classList.contains('open')) return gmPortOutPoint(gmBox.getBoundingClientRect());
+    if (w.phEl && w.phEl.isConnected) {
+      const pr = w.phEl.getBoundingClientRect();
+      return { x: pr.right - 2, y: pr.top + pr.height / 2 };
+    }
+    return null;
+  }
+  function drawOutWire(w) {
+    const a = outAnchorA(w);
+    if (!a || !w.target.el || !w.target.el.isConnected) { removeOutWire(w); return; }
+    const tr = w.target.el.getBoundingClientRect();
+    const b = { x: tr.left + 2, y: tr.top + tr.height / 2 };
+    const d = curveD(a, b);
+    w.line.setAttribute('d', d); w.hit.setAttribute('d', d);
+  }
+  function removeOutWire(w) {
+    if (w.line) w.line.remove();
+    if (w.hit) w.hit.remove();
+    const i = outWires.indexOf(w);
+    if (i > -1) outWires.splice(i, 1);
+    if (outWires.length === 0 && outOv) { outOv.remove(); outOv = null; outTickOn = false; }
+  }
+  function outTick() {
+    if (outWires.length === 0) { outTickOn = false; return; }
+    outWires.slice().forEach(drawOutWire);
+    requestAnimationFrame(outTick);
+  }
+  function startOutWire(e) {
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;z-index:60;pointer-events:none;';
+    ov.innerHTML = '<svg width="100%" height="100%"><path d="M 0 0 L 0 0" style="stroke:rgba(255,255,255,0.95);stroke-width:2.5;stroke-dasharray:7 5;fill:none;filter:drop-shadow(0 0 4px rgba(255,255,255,0.5))"/></svg>';
+    document.body.appendChild(ov);
+    const tline = ov.querySelector('path');
+    const move = (ev) => tline.setAttribute('d', curveD(gmPortOutPoint(gmBox.getBoundingClientRect()), { x: ev.clientX, y: ev.clientY }));
+    const up = (ev) => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      ov.remove();
+      const under = document.elementFromPoint(ev.clientX, ev.clientY);
+      const nodeEl = under && under.closest ? under.closest('.node') : null;
+      if (!nodeEl) { toast('把线拖到目标节点上松手，生成后结果会自动连给它'); return; }
+      const target = nodes.find((x) => x.id === +nodeEl.dataset.id);
+      if (!target) { toast('该节点不支持接收结果连线'); return; }
+      if (outWires.some((w) => w.target === target)) { toast('已连到该节点'); return; }
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      line.setAttribute('style', 'stroke:rgba(255,255,255,0.75);stroke-width:2.5;fill:none;stroke-dasharray:7 5;filter:drop-shadow(0 0 4px rgba(255,255,255,0.4));stroke-linecap:round;');
+      const hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      hit.setAttribute('d', 'M 0 0 L 0 0');
+      hit.style.cssText = 'stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer;fill:none;';
+      hit.title = '双击删除输出连线';
+      outSvg().appendChild(hit); outSvg().appendChild(line);
+      const w = { target, phEl: null, line, hit };
+      hit.addEventListener('dblclick', () => { removeOutWire(w); toast('已删除输出连线'); });
+      outWires.push(w); drawOutWire(w);
+      if (!outTickOn) { outTickOn = true; requestAnimationFrame(outTick); }
+      toast('已预连线：生成完成后结果会自动连给该节点作参考');
+    };
+    move(e);
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  }
   function gmModalLinksTick() {
     if (!genModal.classList.contains('open')) { gmLinkTickOn = false; gmPortHide(); return; }
     gmPortDraw(); // 弹窗开着端口就常显（跟随弹窗拖动）
@@ -1516,6 +1604,7 @@
       });
     });
     cworld.appendChild(ph);
+    outWires.forEach((w) => { w.phEl = ph; }); // 输出预连线改挂到"生成中"节点
     // 立刻关弹窗回到画布：生成节点（带发光连接点）不被弹窗遮挡，可继续拖线连参考图
     closeGenModal();
     toast('已提交生成，画布上的生成节点左右圆点可连参考图');
@@ -1536,16 +1625,24 @@
         removePhEdge(pe);
         if (nodes.includes(from)) addEdge(from, resultNode);
       });
+      // 输出预连线转正：结果节点 → 预连线目标节点
+      let wired = 0;
+      outWires.filter((w) => w.phEl === ph).slice().forEach((w) => {
+        const t = w.target;
+        removeOutWire(w);
+        if (nodes.includes(t)) { addEdge(resultNode, t); wired++; }
+      });
       const metaText = `${gmModel.selectedOptions[0].textContent} · ${gmRes.value} · ${gmRatio.value}`;
       history.unshift({ url: data.image, meta: metaText });
       if (history.length > 8) history.pop();
       renderHistory();
       renderCanvasHistory();
-      toast('已生成到画布');
+      toast('已生成到画布' + (wired > 0 ? `，结果已连线到 ${wired} 个节点` : ''));
     } catch (err) {
       toast('生成失败：' + err.message, true);
       ph.remove();
       phEdges.filter((pe) => pe.phEl === ph).forEach(removePhEdge);
+      outWires.filter((w) => w.phEl === ph).slice().forEach(removeOutWire);
     } finally {
       gmBusy = false;
       gmSend.disabled = false;
